@@ -2,7 +2,7 @@ import ServiceManagement
 import SwiftUI
 
 enum ProcessSort {
-    case cpu, memory
+    case cpu, memory, swap
 }
 
 struct PopoverView: View {
@@ -113,26 +113,34 @@ struct PopoverView: View {
                     Picker("", selection: $processSort) {
                         Text("CPU").tag(ProcessSort.cpu)
                         Text("RAM").tag(ProcessSort.memory)
+                        Text("SWAP").tag(ProcessSort.swap)
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
-                    .frame(width: 110)
+                    .frame(width: 160)
                 }
-                let processes = processSort == .cpu ? sampler.topByCPU : sampler.topByMemory
+                let processes = switch processSort {
+                case .cpu: sampler.topByCPU
+                case .memory: sampler.topByMemory
+                case .swap: sampler.topBySwap
+                }
                 if processes.isEmpty {
                     Text("Sampling…")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(processes) { process in
+                        let value = switch processSort {
+                        case .cpu: String(format: "%.1f%%", process.cpuPercent)
+                        case .memory: Format.bytesLong(process.memBytes)
+                        case .swap: Format.bytesLong(process.compressedBytes)
+                        }
                         HStack {
                             Text(process.name)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
                             Spacer()
-                            Text(processSort == .cpu
-                                 ? String(format: "%.1f%%", process.cpuPercent)
-                                 : Format.bytesLong(process.memBytes))
+                            Text(value)
                                 .monospacedDigit()
                                 .foregroundStyle(.secondary)
                         }

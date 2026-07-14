@@ -50,6 +50,7 @@ enum SampleMode {
         let processes = ProcessReader.read()
         print("Top CPU:   \(processes.byCPU.prefix(3).map { "\($0.name) \(String(format: "%.1f%%", $0.cpuPercent))" }.joined(separator: ", "))")
         print("Top RAM:   \(processes.byMemory.prefix(3).map { "\($0.name) \(Format.bytesLong($0.memBytes))" }.joined(separator: ", "))")
+        print("Top SWAP:  \(processes.bySwap.prefix(3).map { "\($0.name) \(Format.bytesLong($0.compressedBytes))" }.joined(separator: ", "))")
         exit(0)
     }
 }

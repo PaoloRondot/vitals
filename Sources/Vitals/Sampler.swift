@@ -25,6 +25,7 @@ final class Sampler {
     // Per-process sampling only runs while the popover is open.
     var topByCPU: [TopProcess] = []
     var topByMemory: [TopProcess] = []
+    var topBySwap: [TopProcess] = []
     @ObservationIgnored private var processMonitoringActive = false
     @ObservationIgnored private var processRefreshInFlight = false
 
@@ -100,6 +101,7 @@ final class Sampler {
             self.processRefreshInFlight = false
             self.topByCPU = result.byCPU
             self.topByMemory = result.byMemory
+            self.topBySwap = result.bySwap
         }
     }
 }
