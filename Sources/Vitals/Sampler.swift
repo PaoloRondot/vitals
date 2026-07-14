@@ -19,11 +19,20 @@ final class Sampler {
     @ObservationIgnored private let networkReader = NetworkReader()
     @ObservationIgnored private let temperatureReader = TemperatureReader()
     @ObservationIgnored private let frequencyReader = FrequencyReader()
+    @ObservationIgnored private let gpuReader = GPUReader()
+    @ObservationIgnored private let batteryReader = BatteryReader()
+    @ObservationIgnored private let diskReader = DiskReader()
     @ObservationIgnored private let smc = SMCClient()
+    @ObservationIgnored private let notifier = Notifier()
     @ObservationIgnored private var task: Task<Void, Never>?
+    @ObservationIgnored private var cachedVolumes: [VolumeInfo] = []
 
     /// Manufacturer fan RPM bounds (nil when fanless or unavailable).
     let fanLimits: (min: Double, max: Double)?
+
+    /// Manual fan control needs the SMC mode key; newer chips (M5) dropped it
+    /// and their firmware overrides target writes, so the UI hides the controls.
+    let fanControlSupported: Bool
 
     // Per-process sampling only runs while the popover is open.
     var topByCPU: [TopProcess] = []
@@ -39,6 +48,7 @@ final class Sampler {
 
     init() {
         fanLimits = smc?.fanLimits()
+        fanControlSupported = smc?.keyInfo("F0Md") != nil && smc?.fanLimits() != nil
         sample()
         task = Task { [weak self] in
             while !Task.isCancelled {
@@ -63,6 +73,11 @@ final class Sampler {
             s.pCoreMHz = freq.pMHz
         }
 
+        if let gpu = gpuReader.read() {
+            s.gpuMHz = gpu.mhz
+            s.gpuBusy = gpu.busy
+        }
+
         let ram = memoryReader.readRAM()
         s.ramUsed = ram.used
         s.ramTotal = ram.total
@@ -85,6 +100,17 @@ final class Sampler {
             s.powerWatts = smc.systemPowerWatts()
         }
 
+        let io = diskReader.readIO()
+        s.diskRead = io.read
+        s.diskWrite = io.write
+        if tick % 15 == 0 { // volume capacities change slowly; refresh every ~30 s
+            cachedVolumes = diskReader.volumes()
+        }
+        s.volumes = cachedVolumes
+
+        s.battery = batteryReader.read()
+
+        notifier.evaluate(s)
         snapshot = s
         menuBarImage = MenuBarImage.render(s)
         cpuHistory.append(s.cpuLoad)

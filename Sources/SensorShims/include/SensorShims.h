@@ -36,6 +36,11 @@ int vitals_freq_init(void);
 // previous call. Returns 0 until two samples exist, 1 on success.
 int vitals_freq_sample(double *e_mhz, double *p_mhz);
 
+// Same idea for the GPU ("GPU Performance States" + voltage-states9-sram).
+// busy is the active (non-idle) residency fraction, 0..1.
+int vitals_gpu_init(void);
+int vitals_gpu_sample(double *mhz, double *busy);
+
 // MARK: - SMC key data (AppleSMC user client, selector 2)
 //
 // The canonical 80-byte structure exchanged with the AppleSMC kext.

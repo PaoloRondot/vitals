@@ -231,3 +231,84 @@ int vitals_freq_sample(double *e_mhz, double *p_mhz) {
     if (pDen > 0) *p_mhz = pNum / pDen;
     return (eDen > 0 || pDen > 0) ? 1 : 0;
 }
+
+// MARK: - GPU frequency & utilization via IOReport
+
+static double gGpuFreqsMHz[VITALS_MAX_PSTATES];
+static int gGpuFreqCount = 0;
+static IOReportSubscriptionRef gGpuSub = NULL;
+static CFMutableDictionaryRef gGpuSubbed = NULL;
+static CFDictionaryRef gGpuPrev = NULL;
+
+int vitals_gpu_init(void) {
+    if (gGpuSub) return 1;
+
+    io_iterator_t iter = IO_OBJECT_NULL;
+    if (IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("AppleARMIODevice"),
+                                     &iter) != KERN_SUCCESS) {
+        return 0;
+    }
+    io_registry_entry_t entry;
+    while ((entry = IOIteratorNext(iter)) != IO_OBJECT_NULL) {
+        io_name_t name;
+        if (IORegistryEntryGetName(entry, name) == KERN_SUCCESS && strcmp(name, "pmgr") == 0) {
+            load_freq_table(entry, CFSTR("voltage-states9-sram"), gGpuFreqsMHz, &gGpuFreqCount);
+            IOObjectRelease(entry);
+            break;
+        }
+        IOObjectRelease(entry);
+    }
+    IOObjectRelease(iter);
+    if (gGpuFreqCount == 0) return 0;
+
+    CFDictionaryRef channels = IOReportCopyChannelsInGroup(CFSTR("GPU Stats"),
+                                                           CFSTR("GPU Performance States"),
+                                                           0, 0, 0);
+    if (!channels) return 0;
+    CFMutableDictionaryRef desired = CFDictionaryCreateMutableCopy(kCFAllocatorDefault, 0, channels);
+    CFRelease(channels);
+    gGpuSub = IOReportCreateSubscription(NULL, desired, &gGpuSubbed, 0, NULL);
+    return gGpuSub != NULL;
+}
+
+int vitals_gpu_sample(double *mhz, double *busy) {
+    *mhz = 0;
+    *busy = 0;
+    if (!gGpuSub) return 0;
+
+    CFDictionaryRef now = IOReportCreateSamples(gGpuSub, gGpuSubbed, NULL);
+    if (!now) return 0;
+    if (!gGpuPrev) {
+        gGpuPrev = now;
+        return 0;
+    }
+    CFDictionaryRef delta = IOReportCreateSamplesDelta(gGpuPrev, now, NULL);
+    CFRelease(gGpuPrev);
+    gGpuPrev = now;
+    if (!delta) return 0;
+
+    __block double num = 0, activeDen = 0, idleDen = 0;
+    IOReportIterate(delta, ^int(IOReportSampleRef channel) {
+        int states = IOReportStateGetCount(channel);
+        if (states <= 0) return 0;
+        int offset = states - gGpuFreqCount;
+        if (offset < 0) offset = 0;
+        for (int i = 0; i < states; i++) {
+            int64_t residency = IOReportStateGetResidency(channel, i);
+            if (residency <= 0) continue;
+            if (i < offset) {
+                idleDen += (double)residency;
+            } else {
+                num += (double)residency * gGpuFreqsMHz[i - offset];
+                activeDen += (double)residency;
+            }
+        }
+        return 0;
+    });
+    CFRelease(delta);
+
+    if (activeDen > 0) *mhz = num / activeDen;
+    double total = activeDen + idleDen;
+    if (total > 0) *busy = activeDen / total;
+    return total > 0 ? 1 : 0;
+}

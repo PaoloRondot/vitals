@@ -40,6 +40,16 @@ final class SMCClient {
         return scalars.reduce(UInt32(0)) { ($0 << 8) | UInt32($1.value) }
     }
 
+    /// Key metadata: byte size, four-char type, attribute flags.
+    func keyInfo(_ key: String) -> (size: Int, type: String, attributes: UInt8)? {
+        guard let keyCode = Self.fourCC(key) else { return nil }
+        var request = VitalsSMCKeyData()
+        request.key = keyCode
+        request.data8 = UInt8(VITALS_SMC_CMD_GET_KEY_INFO)
+        guard let info = call(&request) else { return nil }
+        return (Int(info.keyInfo.dataSize), Self.typeName(info.keyInfo.dataType), info.keyInfo.dataAttributes)
+    }
+
     /// Read a key and decode it to a Double based on its SMC data type.
     func read(_ key: String) -> Double? {
         guard let keyCode = Self.fourCC(key) else { return nil }

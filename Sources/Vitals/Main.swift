@@ -25,6 +25,27 @@ enum FanCtl {
         guard smc.fanCount > 0 else { fail("no fans present") }
 
         switch args.first {
+        case "test":
+            // Safe probe of what fan writes do on this SMC generation:
+            // only ever raises the target, and restores state afterwards.
+            let hasMode = smc.keyInfo("F0Md") != nil
+            let originalTarget = smc.read("F0Tg") ?? 0
+            print("mode key: \(hasMode ? "present" : "absent"), target before: \(Int(originalTarget))")
+            let probe = max(originalTarget + 800, 5800)
+            print("writing F0Tg=\(Int(probe)): \(smc.write("F0Tg", value: probe) ? "ok" : "REJECTED")")
+            Thread.sleep(forTimeInterval: 6)
+            let heldTarget = smc.read("F0Tg") ?? 0
+            let actual = smc.read("F0Ac") ?? 0
+            print("after 6s: target \(Int(heldTarget)), actual \(Int(actual)) (held: \(abs(heldTarget - probe) < 50))")
+            print("writing F0Tg=0 (auto-restore probe): \(smc.write("F0Tg", value: 0) ? "ok" : "REJECTED")")
+            Thread.sleep(forTimeInterval: 5)
+            let restored = smc.read("F0Tg") ?? 0
+            print("after 5s: target \(Int(restored)) (firmware retook control: \(restored > 100 && abs(restored - probe) > 100))")
+            if restored < 100 {
+                // Firmware didn't retake control; put the original target back.
+                _ = smc.write("F0Tg", value: originalTarget)
+                print("restored original target \(Int(originalTarget))")
+            }
         case "auto":
             guard smc.setFansAuto() else { fail("SMC write failed") }
             print("fans: automatic")
@@ -53,6 +74,13 @@ enum FanCtl {
             let target = smc.read("F\(i)Tg").map { String(Int($0)) } ?? "?"
             print("fan \(i): actual \(actual) RPM, target \(target) RPM")
         }
+        for key in ["F0Md", "F0Tg", "F0Mn", "F0Mx", "FS! "] {
+            if let info = smc.keyInfo(key) {
+                print("key '\(key)': type '\(info.type)', size \(info.size), attributes 0x\(String(info.attributes, radix: 16))")
+            } else {
+                print("key '\(key)': absent")
+            }
+        }
         exit(0)
     }
 
@@ -72,16 +100,23 @@ enum SampleMode {
         let network = NetworkReader()
         let temperature = TemperatureReader()
         let frequency = FrequencyReader()
+        let gpu = GPUReader()
+        let disk = DiskReader()
+        let battery = BatteryReader()
         let smc = SMCClient()
 
-        // CPU load, network rates, and clocks are deltas; prime and wait a beat.
+        // CPU load, network/disk rates, and clocks are deltas; prime and wait.
         _ = cpu.read()
         _ = network.read()
         _ = frequency.read()
+        _ = gpu.read()
+        _ = disk.readIO()
         Thread.sleep(forTimeInterval: 1.0)
 
         let load = cpu.read()
         let freq = frequency.read()
+        let gpuStats = gpu.read()
+        let diskIO = disk.readIO()
         let ram = memory.readRAM()
         let swap = memory.readSwap()
         let net = network.read()
@@ -92,6 +127,14 @@ enum SampleMode {
         print("CPU load:  \(Format.percent(load.total))  (per core: \(load.perCore.map { Format.percent($0) }.joined(separator: " ")))")
         print("CPU temp:  \(temp.map { String(format: "%.1f°C", $0) } ?? "unavailable")")
         print("CPU freq:  \(freq.map { String(format: "P %.2f GHz, E %.2f GHz", $0.pMHz / 1000, $0.eMHz / 1000) } ?? "unavailable")")
+        print("GPU:       \(gpuStats.map { String(format: "%.2f GHz, %.0f%% busy", $0.mhz / 1000, $0.busy * 100) } ?? "unavailable")")
+        print("Disk I/O:  R \(Format.rate(diskIO.read))  W \(Format.rate(diskIO.write))")
+        print("Volumes:   \(disk.volumes().map { "\($0.name) \(Format.bytesLong($0.free)) free" }.joined(separator: ", "))")
+        if let b = battery.read() {
+            print("Battery:   \(b.percent)%, \(b.isCharging ? "charging" : "discharging"), \(String(format: "%+.1f W", b.watts)), health \(b.healthPercent.map { String(format: "%.0f%%", $0) } ?? "?"), \(b.cycleCount) cycles")
+        } else {
+            print("Battery:   none")
+        }
         print("RAM:       \(Format.bytesLong(ram.used)) / \(Format.bytesLong(ram.total))")
         print("Swap:      \(Format.bytesLong(swap.used)) / \(Format.bytesLong(swap.total))")
         print("Network:   ↓ \(Format.rate(net.down))  ↑ \(Format.rate(net.up))")

@@ -22,7 +22,11 @@ just Swift Package Manager.
 | Swap | `sysctl vm.swapusage` |
 | Network | `getifaddrs` byte-counter deltas over `en*` interfaces |
 | Fans / power | AppleSMC user client (`FNum`/`F*Ac`, `PSTR`) |
-| Fan control | SMC writes (`F*Md`/`F*Tg`), clamped to `F0Mn`–`F0Mx`; runs the app's own binary as root via an admin prompt |
+| Fan control | SMC writes (`F*Md`/`F*Tg`), clamped to `F0Mn`–`F0Mx`; runs the app's own binary as root via an admin prompt. Hidden on chips without `F0Md` (e.g. M5), whose firmware overrides target writes |
+| GPU | IOReport "GPU Performance States" residencies + pmgr `voltage-states9-sram` |
+| Battery | `AppleSmartBattery` registry (percent, watts, health, cycles, temperature) |
+| Disk | `IOBlockStorageDriver` statistics deltas + FileManager volume capacities |
+| Notifications | UserNotifications on critical transitions (temp, memory pressure, offline), 10 min cooldown |
 | Connection quality | TCP connect latency to 1.1.1.1 every ~10 s |
 | Memory pressure | `sysctl kern.memorystatus_vm_pressure_level` (drives the RAM color coding) |
 

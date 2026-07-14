@@ -27,6 +27,15 @@ struct Snapshot {
     var fanForced: Bool = false        // fans under manual (forced) control
     var powerWatts: Double?
 
+    var gpuMHz: Double?
+    var gpuBusy: Double?               // 0...1
+
+    var diskRead: Double = 0           // bytes/s
+    var diskWrite: Double = 0
+    var volumes: [VolumeInfo] = []
+
+    var battery: BatteryInfo?
+
     var memoryPressureLevel: Int = 1  // kernel level: 1 normal, 2 warning, 4 critical
     var latencyMs: Double?            // TCP connect RTT to 1.1.1.1
     var latencyFailed: Bool = false   // probe ran and could not connect
