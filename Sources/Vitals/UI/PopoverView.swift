@@ -25,10 +25,11 @@ struct PopoverView: View {
                     Spacer()
                     if let temp = s.cpuTemp {
                         Text(String(format: "%.1f°C", temp))
-                            .foregroundStyle(temp > 85 ? .red : .secondary)
+                            .foregroundStyle(s.tempSeverity.color ?? .secondary)
                     }
                     Text(Format.percent(s.cpuLoad))
                         .font(.headline.monospacedDigit())
+                        .foregroundStyle(s.cpuSeverity.color ?? .primary)
                 }
                 Sparkline(values: sampler.cpuHistory.values, maxValue: 1, color: .blue)
                     .frame(height: 28)
@@ -58,7 +59,7 @@ struct PopoverView: View {
                         .foregroundStyle(.secondary)
                 }
                 ProgressView(value: s.ramFraction)
-                    .tint(s.ramFraction > 0.85 ? .orange : .green)
+                    .tint(s.ramSeverity.color ?? .green)
                 HStack {
                     Text("Swap")
                         .foregroundStyle(.secondary)
@@ -77,6 +78,16 @@ struct PopoverView: View {
                 HStack {
                     Label("Network", systemImage: "network")
                         .font(.headline)
+                    if s.latencyFailed {
+                        Text("● offline")
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    } else if let ms = s.latencyMs {
+                        Text(String(format: "● %.0f ms", ms))
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(s.networkSeverity.color ?? .green)
+                            .help("TCP connect time to 1.1.1.1")
+                    }
                     Spacer()
                     Text("↓ \(Format.rate(s.netDown))   ↑ \(Format.rate(s.netUp))")
                         .font(.body.monospacedDigit())

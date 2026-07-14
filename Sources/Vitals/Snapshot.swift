@@ -26,6 +26,10 @@ struct Snapshot {
     var fanRPMs: [Double] = []
     var powerWatts: Double?
 
+    var memoryPressureLevel: Int = 1  // kernel level: 1 normal, 2 warning, 4 critical
+    var latencyMs: Double?            // TCP connect RTT to 1.1.1.1
+    var latencyFailed: Bool = false   // probe ran and could not connect
+
     var ramFraction: Double {
         ramTotal > 0 ? Double(ramUsed) / Double(ramTotal) : 0
     }

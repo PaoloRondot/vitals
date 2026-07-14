@@ -34,6 +34,16 @@ final class MemoryReader {
         return (min(used, totalRAM), totalRAM)
     }
 
+    /// Kernel memory pressure: 1 normal, 2 warning, 4 critical.
+    func pressureLevel() -> Int {
+        var level: UInt32 = 1
+        var len = MemoryLayout<UInt32>.size
+        guard sysctlbyname("kern.memorystatus_vm_pressure_level", &level, &len, nil, 0) == 0 else {
+            return 1
+        }
+        return Int(level)
+    }
+
     func readSwap() -> (used: UInt64, total: UInt64) {
         var swap = xsw_usage()
         var len = MemoryLayout<xsw_usage>.size

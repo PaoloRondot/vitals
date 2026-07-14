@@ -44,6 +44,14 @@ enum SampleMode {
         print("RAM:       \(Format.bytesLong(ram.used)) / \(Format.bytesLong(ram.total))")
         print("Swap:      \(Format.bytesLong(swap.used)) / \(Format.bytesLong(swap.total))")
         print("Network:   ↓ \(Format.rate(net.down))  ↑ \(Format.rate(net.up))")
+        let semaphore = DispatchSemaphore(value: 0)
+        Task {
+            let ms = await LatencyProbe.measure()
+            print("Latency:   \(ms.map { String(format: "%.0f ms", $0) } ?? "unreachable")")
+            semaphore.signal()
+        }
+        semaphore.wait()
+        print("Pressure:  level \(memory.pressureLevel()) (1 normal, 2 warning, 4 critical)")
         print("Fans:      \(fans.isEmpty ? "none detected" : fans.map { String(format: "%.0f RPM", $0) }.joined(separator: ", "))")
         print("Power:     \(watts.map { String(format: "%.1f W", $0) } ?? "unavailable")")
 

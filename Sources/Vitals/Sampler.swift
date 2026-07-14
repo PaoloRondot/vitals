@@ -29,6 +29,11 @@ final class Sampler {
     @ObservationIgnored private var processMonitoringActive = false
     @ObservationIgnored private var processRefreshInFlight = false
 
+    // Latency probe state (measured every ~10 s, not every tick).
+    @ObservationIgnored private var lastLatencyMs: Double?
+    @ObservationIgnored private var latencyFailed = false
+    @ObservationIgnored private var tick = 0
+
     init() {
         sample()
         task = Task { [weak self] in
@@ -62,6 +67,10 @@ final class Sampler {
         s.swapUsed = swap.used
         s.swapTotal = swap.total
 
+        s.memoryPressureLevel = memoryReader.pressureLevel()
+        s.latencyMs = lastLatencyMs
+        s.latencyFailed = latencyFailed
+
         let net = networkReader.read()
         s.netDown = net.down
         s.netUp = net.up
@@ -82,6 +91,19 @@ final class Sampler {
         if processMonitoringActive {
             refreshProcesses()
         }
+
+        // Probe connection latency every 5th tick (~10 s).
+        if tick % 5 == 0 {
+            Task { [weak self] in
+                let ms = await LatencyProbe.measure()
+                guard let self else { return }
+                self.lastLatencyMs = ms
+                self.latencyFailed = (ms == nil)
+                self.snapshot.latencyMs = ms
+                self.snapshot.latencyFailed = (ms == nil)
+            }
+        }
+        tick += 1
     }
 
     func setProcessMonitoring(_ active: Bool) {
