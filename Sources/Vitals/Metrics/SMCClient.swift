@@ -60,11 +60,49 @@ final class SMCClient {
         return Self.decode(type: info.keyInfo.dataType, bytes: bytes)
     }
 
+    private static func typeName(_ type: UInt32) -> String {
+        String(bytes: [UInt8((type >> 24) & 0xff), UInt8((type >> 16) & 0xff),
+                       UInt8((type >> 8) & 0xff), UInt8(type & 0xff)],
+               encoding: .ascii) ?? ""
+    }
+
+    /// Write a numeric value to a key, encoded per the key's SMC data type.
+    /// Requires root; returns false otherwise (or for unsupported types).
+    @discardableResult
+    func write(_ key: String, value: Double) -> Bool {
+        guard let keyCode = Self.fourCC(key) else { return false }
+
+        var infoRequest = VitalsSMCKeyData()
+        infoRequest.key = keyCode
+        infoRequest.data8 = UInt8(VITALS_SMC_CMD_GET_KEY_INFO)
+        guard let info = call(&infoRequest) else { return false }
+
+        var writeRequest = VitalsSMCKeyData()
+        writeRequest.key = keyCode
+        writeRequest.keyInfo.dataSize = info.keyInfo.dataSize
+        writeRequest.data8 = UInt8(VITALS_SMC_CMD_WRITE_KEY)
+        let encoded = withUnsafeMutableBytes(of: &writeRequest.bytes) { buffer -> Bool in
+            switch Self.typeName(info.keyInfo.dataType) {
+            case "flt ":
+                let raw = Float(value).bitPattern.littleEndian
+                buffer[0] = UInt8(raw & 0xff)
+                buffer[1] = UInt8((raw >> 8) & 0xff)
+                buffer[2] = UInt8((raw >> 16) & 0xff)
+                buffer[3] = UInt8((raw >> 24) & 0xff)
+                return true
+            case "ui8 ":
+                buffer[0] = UInt8(max(0, min(255, value)))
+                return true
+            default:
+                return false
+            }
+        }
+        guard encoded else { return false }
+        return call(&writeRequest) != nil
+    }
+
     private static func decode(type: UInt32, bytes: [UInt8]) -> Double? {
-        let typeName = String(bytes: [UInt8((type >> 24) & 0xff), UInt8((type >> 16) & 0xff),
-                                      UInt8((type >> 8) & 0xff), UInt8(type & 0xff)],
-                              encoding: .ascii) ?? ""
-        switch typeName {
+        switch typeName(type) {
         case "flt ": // little-endian IEEE float (Apple Silicon)
             guard bytes.count >= 4 else { return nil }
             let raw = UInt32(bytes[0]) | (UInt32(bytes[1]) << 8) | (UInt32(bytes[2]) << 16) | (UInt32(bytes[3]) << 24)
@@ -92,9 +130,43 @@ final class SMCClient {
 
     // MARK: - Higher-level readings
 
+    var fanCount: Int {
+        guard let count = read("FNum"), count > 0, count < 10 else { return 0 }
+        return Int(count)
+    }
+
     func fanSpeeds() -> [Double] {
-        guard let count = read("FNum"), count > 0, count < 10 else { return [] }
-        return (0..<Int(count)).compactMap { read("F\($0)Ac") }
+        (0..<fanCount).compactMap { read("F\($0)Ac") }
+    }
+
+    /// Manufacturer RPM bounds of fan 0 — the safe manual range.
+    func fanLimits() -> (min: Double, max: Double)? {
+        guard let min = read("F0Mn"), let max = read("F0Mx"), max > min else { return nil }
+        return (min, max)
+    }
+
+    /// True when fans are in forced (manual target) mode.
+    func fansForced() -> Bool {
+        (read("F0Md") ?? 0) > 0
+    }
+
+    /// Force all fans to a target RPM. Root only.
+    func setFans(targetRPM: Double) -> Bool {
+        var ok = fanCount > 0
+        for i in 0..<fanCount {
+            ok = write("F\(i)Tg", value: targetRPM) && ok
+            ok = write("F\(i)Md", value: 1) && ok
+        }
+        return ok
+    }
+
+    /// Return all fans to automatic (SMC-managed) control. Root only.
+    func setFansAuto() -> Bool {
+        var ok = fanCount > 0
+        for i in 0..<fanCount {
+            ok = write("F\(i)Md", value: 0) && ok
+        }
+        return ok
     }
 
     /// Total system power draw in watts, probing known keys.

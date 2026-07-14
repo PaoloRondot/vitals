@@ -3,11 +3,62 @@ import Foundation
 @main
 enum Main {
     static func main() {
-        if CommandLine.arguments.contains("--sample") {
+        let args = CommandLine.arguments
+        if args.contains("--sample") {
             SampleMode.run()
+        } else if args.contains("--fan-info") {
+            FanCtl.printInfo()
+        } else if let index = args.firstIndex(of: "--fanctl") {
+            FanCtl.run(Array(args[(index + 1)...]))
         } else {
             VitalsApp.main()
         }
+    }
+}
+
+/// Privileged fan-control mode. The app invokes its own binary with
+/// `--fanctl` through an admin-authorized shell (SMC writes require root).
+enum FanCtl {
+    static func run(_ args: [String]) -> Never {
+        guard let smc = SMCClient() else { fail("cannot open SMC") }
+        guard geteuid() == 0 else { fail("--fanctl requires root") }
+        guard smc.fanCount > 0 else { fail("no fans present") }
+
+        switch args.first {
+        case "auto":
+            guard smc.setFansAuto() else { fail("SMC write failed") }
+            print("fans: automatic")
+        case "set":
+            guard args.count >= 2, let rpm = Double(args[1]) else { fail("usage: --fanctl set <rpm>") }
+            guard let limits = smc.fanLimits() else { fail("cannot read fan limits") }
+            let clamped = max(limits.min, min(limits.max, rpm))
+            guard smc.setFans(targetRPM: clamped) else { fail("SMC write failed") }
+            print("fans: forced to \(Int(clamped)) RPM")
+        default:
+            fail("usage: --fanctl auto | --fanctl set <rpm>")
+        }
+        exit(0)
+    }
+
+    static func printInfo() -> Never {
+        guard let smc = SMCClient() else { fail("cannot open SMC") }
+        print("fans: \(smc.fanCount), forced: \(smc.fansForced())")
+        if let limits = smc.fanLimits() {
+            print("limits: \(Int(limits.min))-\(Int(limits.max)) RPM")
+        } else {
+            print("limits: unavailable")
+        }
+        for i in 0..<smc.fanCount {
+            let actual = smc.read("F\(i)Ac").map { String(Int($0)) } ?? "?"
+            let target = smc.read("F\(i)Tg").map { String(Int($0)) } ?? "?"
+            print("fan \(i): actual \(actual) RPM, target \(target) RPM")
+        }
+        exit(0)
+    }
+
+    private static func fail(_ message: String) -> Never {
+        FileHandle.standardError.write(Data("vitals: \(message)\n".utf8))
+        exit(1)
     }
 }
 

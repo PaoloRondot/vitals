@@ -24,6 +24,7 @@ struct Snapshot {
     var netUp: Double = 0
 
     var fanRPMs: [Double] = []
+    var fanForced: Bool = false        // fans under manual (forced) control
     var powerWatts: Double?
 
     var memoryPressureLevel: Int = 1  // kernel level: 1 normal, 2 warning, 4 critical

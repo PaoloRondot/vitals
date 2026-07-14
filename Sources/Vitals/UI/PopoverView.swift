@@ -9,6 +9,27 @@ struct PopoverView: View {
     var sampler: Sampler
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var processSort: ProcessSort = .cpu
+    @State private var fanManual = false
+    @State private var fanTarget: Double = 0
+    @State private var fanBusy = false
+    @State private var fanError: String?
+    @State private var suppressFanChange = false
+
+    private func applyFan(_ command: String) {
+        fanBusy = true
+        fanError = nil
+        Task {
+            let error = await FanControl.apply(command)
+            fanBusy = false
+            if let error {
+                if error != "cancelled" { fanError = error }
+                // Revert the toggle to what the SMC actually reports.
+                suppressFanChange = true
+                fanManual = sampler.snapshot.fanForced
+                suppressFanChange = false
+            }
+        }
+    }
 
     private var isBundled: Bool {
         Bundle.main.bundlePath.hasSuffix(".app")
@@ -99,18 +120,56 @@ struct PopoverView: View {
 
             // Fans & power (hidden when unavailable)
             if !s.fanRPMs.isEmpty || s.powerWatts != nil {
-                HStack {
-                    if !s.fanRPMs.isEmpty {
-                        Label(s.fanRPMs.map { String(format: "%.0f RPM", $0) }.joined(separator: "  "),
-                              systemImage: "fan")
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        if !s.fanRPMs.isEmpty {
+                            Label(s.fanRPMs.map { String(format: "%.0f RPM", $0) }.joined(separator: "  "),
+                                  systemImage: "fan")
+                        }
+                        Spacer()
+                        if let watts = s.powerWatts {
+                            Label(String(format: "%.1f W", watts), systemImage: "bolt")
+                        }
                     }
-                    Spacer()
-                    if let watts = s.powerWatts {
-                        Label(String(format: "%.1f W", watts), systemImage: "bolt")
+                    .font(.callout.monospacedDigit())
+                    .foregroundStyle(.secondary)
+
+                    if let limits = sampler.fanLimits, !s.fanRPMs.isEmpty {
+                        HStack(spacing: 8) {
+                            Picker("", selection: $fanManual) {
+                                Text("Auto").tag(false)
+                                Text("Manual").tag(true)
+                            }
+                            .pickerStyle(.segmented)
+                            .labelsHidden()
+                            .fixedSize()
+                            .disabled(fanBusy)
+                            .onChange(of: fanManual) { wasManual, isManual in
+                                guard !suppressFanChange, wasManual != isManual else { return }
+                                if !isManual { applyFan("auto") }
+                                // Switching to Manual applies nothing until Set.
+                            }
+                            if fanManual {
+                                Slider(value: $fanTarget, in: limits.min...limits.max)
+                                Text("\(Int(fanTarget))")
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 34, alignment: .trailing)
+                                Button("Set") { applyFan("set \(Int(fanTarget))") }
+                                    .disabled(fanBusy)
+                            }
+                        }
+                        if let error = fanError {
+                            Text(error)
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                        } else if fanManual {
+                            Text("Setting a target asks for your admin password")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
-                .font(.callout.monospacedDigit())
-                .foregroundStyle(.secondary)
             }
 
             Divider()
@@ -189,7 +248,15 @@ struct PopoverView: View {
         }
         .padding(14)
         .frame(width: 300)
-        .onAppear { sampler.setProcessMonitoring(true) }
+        .onAppear {
+            sampler.setProcessMonitoring(true)
+            suppressFanChange = true
+            fanManual = sampler.snapshot.fanForced
+            suppressFanChange = false
+            if fanTarget == 0 {
+                fanTarget = sampler.snapshot.fanRPMs.first ?? sampler.fanLimits?.min ?? 0
+            }
+        }
         .onDisappear { sampler.setProcessMonitoring(false) }
     }
 }

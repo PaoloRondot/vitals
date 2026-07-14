@@ -22,6 +22,9 @@ final class Sampler {
     @ObservationIgnored private let smc = SMCClient()
     @ObservationIgnored private var task: Task<Void, Never>?
 
+    /// Manufacturer fan RPM bounds (nil when fanless or unavailable).
+    let fanLimits: (min: Double, max: Double)?
+
     // Per-process sampling only runs while the popover is open.
     var topByCPU: [TopProcess] = []
     var topByMemory: [TopProcess] = []
@@ -35,6 +38,7 @@ final class Sampler {
     @ObservationIgnored private var tick = 0
 
     init() {
+        fanLimits = smc?.fanLimits()
         sample()
         task = Task { [weak self] in
             while !Task.isCancelled {
@@ -77,6 +81,7 @@ final class Sampler {
 
         if let smc {
             s.fanRPMs = smc.fanSpeeds()
+            s.fanForced = smc.fansForced()
             s.powerWatts = smc.systemPowerWatts()
         }
 

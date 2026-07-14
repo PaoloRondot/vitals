@@ -22,6 +22,9 @@ just Swift Package Manager.
 | Swap | `sysctl vm.swapusage` |
 | Network | `getifaddrs` byte-counter deltas over `en*` interfaces |
 | Fans / power | AppleSMC user client (`FNum`/`F*Ac`, `PSTR`) |
+| Fan control | SMC writes (`F*Md`/`F*Tg`), clamped to `F0Mn`–`F0Mx`; runs the app's own binary as root via an admin prompt |
+| Connection quality | TCP connect latency to 1.1.1.1 every ~10 s |
+| Memory pressure | `sysctl kern.memorystatus_vm_pressure_level` (drives the RAM color coding) |
 
 No sudo, entitlements, or permission prompts needed.
 
